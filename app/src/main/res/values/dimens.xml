@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Button dimensions -->
+    <dimen name="nav_button_size">48dp</dimen>
+    <dimen name="get_started_button_width">48dp</dimen>
+    <dimen name="get_started_padding_horizontal">16dp</dimen>
+</resources>

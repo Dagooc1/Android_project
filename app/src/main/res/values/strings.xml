@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Save Parking</string>
+    <string name="save_parking">Save Parking Spot</string>
+    <string name="find_car">Find My Car</string>
+    <string name="saved_locations" >Saved Locations</string>
+    <string name="no_saved_locations">No saved parking spots yet</string>
+    <string name="prev_arrow">&lt;</string>
+    <string name="next_arrow">&gt;</string>
+</resources>

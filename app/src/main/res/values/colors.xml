@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#4CAF50</color>
+    <color name="primary_dark">#388E3C</color>
+    <color name="accent">#8BC34A</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="dark_blue">#06264D</color>
+    <color name="yellow">#FFC107</color>
+    <color name="purple_200">#06264D</color>  <!-- Light purple -->
+    <color name="purple_500">#06264D</color>  <!-- Primary purple -->
+    <color name="purple_700">#06264D</color>  <!-- Dark purple -->
+</resources>
