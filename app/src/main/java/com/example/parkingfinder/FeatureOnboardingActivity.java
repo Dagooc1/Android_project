@@ -4,7 +4,6 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
-
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -49,6 +48,9 @@ public class FeatureOnboardingActivity extends AppCompatActivity implements Onbo
 
     @Override
     public void onFinishOnboarding() {
+        // Mark onboarding as complete
+        OnboardingManager.setOnboardingComplete(this, true);
+
         // Proceed to the permissions onboarding screen
         Intent intent = new Intent(FeatureOnboardingActivity.this, OnboardingActivity.class);
         startActivity(intent);

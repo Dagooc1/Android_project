@@ -114,6 +114,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Check if onboarding is needed
+        if (!OnboardingManager.isOnboardingComplete(this)) {
+            startOnboarding();
+            return; // Exit onCreate early
+        }
+
         // Configure OpenStreetMap
         Configuration.getInstance().load(getApplicationContext(),
                 getPreferences(Context.MODE_PRIVATE));
@@ -160,6 +166,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         loadLastSavedParkingLocation();
 
         checkLocationEnabled();
+    }
+    private void startOnboarding() {
+        Intent intent = new Intent(this, FeatureOnboardingActivity.class);
+        startActivity(intent);
+        finish(); // Finish MainActivity so it's not in the back stack
     }
 
     private void loadLastSavedParkingLocation() {
