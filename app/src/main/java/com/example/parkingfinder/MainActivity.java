@@ -1,4 +1,5 @@
 package com.example.parkingfinder;
+
 import java.util.Iterator;
 import android.Manifest;
 import android.content.Context;
@@ -17,8 +18,15 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.location.LocationManager;
+import org.json.JSONArray;
+import org.osmdroid.util.BoundingBox;
+import org.osmdroid.util.Distance;
+import org.osmdroid.views.overlay.OverlayWithIW;
 
-
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.io.OutputStream;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
@@ -94,7 +102,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private Polyline routeOverlay;
     private boolean isRoutingActive = false;
     private List<Marker> parkingMarkers = new ArrayList<>();
+    private static final String OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current_weather=true";
 
+    //private void fetchOpenMeteoWeather(double latitude, double longitude) {
+    //    String url = String.format(OPEN_METEO_URL, latitude, longitude);
+    //    new FetchWeatherTask().execute(url);
+   // }
+
+    // Modify your weather parsing to handle both APIs
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -143,7 +158,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         // Check if there was a previous parking spot
         loadLastSavedParkingLocation();
-
 
         checkLocationEnabled();
     }
@@ -451,6 +465,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             Toast.makeText(this, "Error removing parking location from map", Toast.LENGTH_SHORT).show();
         }
     }
+
     private void confirmRemoveParking() {
         // First check if we have a current parking location at all
         if (currentDbParking == null) {
@@ -491,6 +506,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 .setNegativeButton("No", null)
                 .show();
     }
+
     /**
      * Clears the parking location from the UI only, without affecting database
      */
@@ -583,6 +599,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             clearCurrentParkingFromUI();
         }
     }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -604,7 +621,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         checkLocationEnabled();
     }
 
-
     private void checkLocationEnabled() {
         if (!isLocationEnabled()) {
             // If location is disabled, redirect to OnboardingActivity
@@ -613,6 +629,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             finish();
         }
     }
+
     @Override
     protected void onPause() {
         super.onPause();
@@ -622,14 +639,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         sensorManager.unregisterListener(this);
 
         // Stop location updates
-        fusedLocationClient.removeLocationUpdates(locationCallback);
+        if (locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+        }
     }
+
     private boolean isLocationEnabled() {
         LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         return locationManager != null &&
                 (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                         locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
     }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -651,7 +672,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             loadSavedParkingLocations();
         }
     }
-
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
@@ -834,21 +854,119 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void calculateRoute(GeoPoint start, GeoPoint end) {
         // Clear previous route if exists
-        if (routeOverlay != null) {
-            mapView.getOverlays().remove(routeOverlay);
-        }
+        clearRoute();
 
-        // For demonstration, we'll draw a straight line
-        // In a real app, you would use OSRM or Google Directions API
+        // Create a new route overlay
         routeOverlay = new Polyline();
-        routeOverlay.addPoint(start);
-        routeOverlay.addPoint(end);
-        routeOverlay.setColor(ContextCompat.getColor(this, R.color.purple_500)); // Using default Android color
+        routeOverlay.setColor(ContextCompat.getColor(this, R.color.purple_500));
         routeOverlay.setWidth(10f);
 
-        mapView.getOverlays().add(routeOverlay);
-        mapView.invalidate();
+        // First try OpenRouteService
+        new FetchRouteTask().execute(start, end);
+
         isRoutingActive = true;
+    }
+
+    private class FetchRouteTask extends AsyncTask<GeoPoint, Void, List<GeoPoint>> {
+        private static final String OPENROUTE_API_KEY = "5b3ce3597851110001cf6248a606f77191d4416d8c7c3fe1279a8bd8";
+        private static final String OPENROUTE_API_URL = "https://api.openrouteservice.org/v2/directions/foot-walking";
+        private GeoPoint[] mPoints; // Store points as class member
+
+        @Override
+        protected List<GeoPoint> doInBackground(GeoPoint... points) {
+            mPoints = points; // Store the points
+            if (points.length < 2) return null;
+
+            GeoPoint start = points[0];
+            GeoPoint end = points[1];
+
+            try {
+                // Build the coordinates JSON array for the API
+                JSONArray coordinates = new JSONArray();
+                JSONArray startCoord = new JSONArray();
+                startCoord.put(start.getLongitude());
+                startCoord.put(start.getLatitude());
+
+                JSONArray endCoord = new JSONArray();
+                endCoord.put(end.getLongitude());
+                endCoord.put(end.getLatitude());
+
+                coordinates.put(startCoord);
+                coordinates.put(endCoord);
+
+                // Create request body
+                JSONObject requestBody = new JSONObject();
+                requestBody.put("coordinates", coordinates);
+                requestBody.put("format", "geojson");
+
+                // Set up connection
+                URL url = new URL(OPENROUTE_API_URL);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Authorization", OPENROUTE_API_KEY);
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setDoOutput(true);
+                connection.setConnectTimeout(10000); // 10 second timeout
+                connection.setReadTimeout(15000); // 15 second read timeout
+
+                // Write request body
+                try (OutputStream os = connection.getOutputStream()) {
+                    byte[] input = requestBody.toString().getBytes("utf-8");
+                    os.write(input, 0, input.length);
+                }
+
+                // Read response
+                StringBuilder response = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), "utf-8"))) {
+                    String responseLine;
+                    while ((responseLine = br.readLine()) != null) {
+                        response.append(responseLine.trim());
+                    }
+                }
+
+                // Parse the GeoJSON response to extract route points
+                List<GeoPoint> routePoints = new ArrayList<>();
+                JSONObject jsonResponse = new JSONObject(response.toString());
+                JSONArray features = jsonResponse.getJSONArray("features");
+                if (features.length() > 0) {
+                    JSONObject firstFeature = features.getJSONObject(0);
+                    JSONObject geometry = firstFeature.getJSONObject("geometry");
+                    if (geometry.getString("type").equals("LineString")) {
+                        JSONArray coordinates2 = geometry.getJSONArray("coordinates");
+                        for (int i = 0; i < coordinates2.length(); i++) {
+                            JSONArray point = coordinates2.getJSONArray(i);
+                            double lon = point.getDouble(0);
+                            double lat = point.getDouble(1);
+                            routePoints.add(new GeoPoint(lat, lon));
+                        }
+                    }
+                }
+
+                return routePoints;
+
+            } catch (Exception e) {
+                Log.e("FetchRouteTask", "Error fetching route: " + e.getMessage(), e);
+                return null;
+            }
+        }
+
+
+        @Override
+        protected void onPostExecute(List<GeoPoint> routePoints) {
+            if (routePoints != null && !routePoints.isEmpty()) {
+                // OpenRouteService API call succeeded, draw the route
+                routeOverlay.setPoints(routePoints);
+                mapView.getOverlays().add(routeOverlay);
+                BoundingBox boundingBox = BoundingBox.fromGeoPoints(routePoints);
+                mapView.zoomToBoundingBox(boundingBox, true, 50);
+                mapView.invalidate();
+                Toast.makeText(MainActivity.this, "Route found!", Toast.LENGTH_SHORT).show();
+            } else {
+                // OpenRouteService API call failed, try GraphHopper as fallback
+                new FetchGraphhopperRouteTask().execute(mPoints);
+            }
+        }
     }
 
     private void clearRoute() {
@@ -858,11 +976,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             routeOverlay = null;
         }
         isRoutingActive = false;
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // Not needed for this application
     }
 
     private void openSavedLocations() {
@@ -944,6 +1057,221 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         } catch (Exception e) {
             Log.e("MainActivity", "Error showing saved locations dialog", e);
             Toast.makeText(this, "Error loading saved locations", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        // Handle accuracy changes if needed
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Clean up resources
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(this);
+        }
+
+        if (fusedLocationClient != null && locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+        }
+
+        if (parkingDatabase != null) {
+            parkingDatabase.close();
+        }
+    }
+
+    private class FetchGraphhopperRouteTask extends AsyncTask<GeoPoint, Void, List<GeoPoint>> {
+        // Use OSRM as an alternative routing service (doesn't require API key)
+        private static final String OSRM_API_URL = "https://router.project-osrm.org/route/v1/foot/";
+        private GeoPoint[] mPoints;
+
+        @Override
+        protected List<GeoPoint> doInBackground(GeoPoint... points) {
+            mPoints = points;
+            if (points.length < 2) return null;
+
+            GeoPoint start = points[0];
+            GeoPoint end = points[1];
+
+            try {
+                // Build URL for OSRM
+                StringBuilder urlBuilder = new StringBuilder(OSRM_API_URL);
+                urlBuilder.append(start.getLongitude()).append(",").append(start.getLatitude()).append(";");
+                urlBuilder.append(end.getLongitude()).append(",").append(end.getLatitude());
+                urlBuilder.append("?overview=full&geometries=polyline");
+
+                URL url = new URL(urlBuilder.toString());
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(10000); // 10 second timeout
+                connection.setReadTimeout(15000); // 15 second read timeout
+
+                // Read response
+                StringBuilder response = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), "utf-8"))) {
+                    String responseLine;
+                    while ((responseLine = br.readLine()) != null) {
+                        response.append(responseLine.trim());
+                    }
+                }
+
+                // Parse JSON response
+                List<GeoPoint> routePoints = new ArrayList<>();
+                JSONObject jsonResponse = new JSONObject(response.toString());
+
+                // Check if the route was found successfully
+                if (jsonResponse.has("routes") && jsonResponse.getJSONArray("routes").length() > 0) {
+                    JSONObject route = jsonResponse.getJSONArray("routes").getJSONObject(0);
+
+                    // Get the encoded polyline
+                    String geometry = route.getString("geometry");
+
+                    // Decode the polyline
+                    List<GeoPoint> decodedPoints = decodePolyline(geometry);
+                    return decodedPoints;
+                }
+
+                return null;
+
+            } catch (Exception e) {
+                Log.e("FetchOSRMRoute", "Error fetching route: " + e.getMessage(), e);
+                return null;
+            }
+        }
+
+        // Method to decode Google's encoded polyline format
+        private List<GeoPoint> decodePolyline(String encoded) {
+            List<GeoPoint> poly = new ArrayList<>();
+            int index = 0, len = encoded.length();
+            int lat = 0, lng = 0;
+
+            while (index < len) {
+                int b, shift = 0, result = 0;
+                do {
+                    b = encoded.charAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+                lat += dlat;
+
+                shift = 0;
+                result = 0;
+                do {
+                    b = encoded.charAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+                lng += dlng;
+
+                GeoPoint p = new GeoPoint((double) lat / 1E5, (double) lng / 1E5);
+                poly.add(p);
+            }
+            return poly;
+        }
+
+        @Override
+        protected void onPostExecute(List<GeoPoint> routePoints) {
+            if (routePoints != null && !routePoints.isEmpty()) {
+                // OSRM API call succeeded
+                routeOverlay.setPoints(routePoints);
+                mapView.getOverlays().add(routeOverlay);
+                BoundingBox boundingBox = BoundingBox.fromGeoPoints(routePoints);
+                mapView.zoomToBoundingBox(boundingBox, true, 50);
+                mapView.invalidate();
+                Toast.makeText(MainActivity.this, "Route found using backup service!", Toast.LENGTH_SHORT).show();
+            } else {
+                // All routing services failed, use a local routing approach
+                try {
+                    // Try using local direct routing with waypoints to avoid buildings
+                    generateLocalRouteWithWaypoints(mPoints[0], mPoints[1]);
+                } catch (Exception e) {
+                    Log.e("LocalRouting", "Error in local routing: " + e.getMessage(), e);
+                    // Last resort - show direct line with warning
+                    routeOverlay.addPoint(mPoints[0]);
+                    routeOverlay.addPoint(mPoints[1]);
+                    mapView.getOverlays().add(routeOverlay);
+                    mapView.invalidate();
+                    Toast.makeText(MainActivity.this,
+                            "Couldn't calculate detailed route, showing direct path. Consider enabling data connection.",
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        }
+        private void generateLocalRouteWithWaypoints(GeoPoint start, GeoPoint end) {
+            // Calculate the distance between start and end
+            double distance = calculateDistance(start.getLatitude(), start.getLongitude(),
+                    end.getLatitude(), end.getLongitude());
+
+            // Only add waypoints if distance is significant
+            if (distance > 100) { // More than 100m
+                routeOverlay.addPoint(start);
+
+                // Add some waypoints to simulate following streets
+                // This is a simplified approach - in a real implementation,
+                // you would use actual map data to determine street locations
+
+                // Calculate midpoint with slight offset to simulate following roads
+                double midLat = (start.getLatitude() + end.getLatitude()) / 2;
+                double midLng = (start.getLongitude() + end.getLongitude()) / 2;
+
+                // Add slight perpendicular offset to simulate road network
+                double dx = end.getLongitude() - start.getLongitude();
+                double dy = end.getLatitude() - start.getLatitude();
+                double norm = Math.sqrt(dx * dx + dy * dy);
+
+                // Perpendicular direction
+                double perpDx = -dy / norm;
+                double perpDy = dx / norm;
+
+                // Add the waypoint with offset
+                GeoPoint waypoint = new GeoPoint(
+                        midLat + 0.0002 * perpDy, // Small offset
+                        midLng + 0.0002 * perpDx
+                );
+                routeOverlay.addPoint(waypoint);
+
+                routeOverlay.addPoint(end);
+                mapView.getOverlays().add(routeOverlay);
+
+                // Calculate bounds to include all points
+                ArrayList<GeoPoint> points = new ArrayList<>();
+                points.add(start);
+                points.add(waypoint);
+                points.add(end);
+
+                BoundingBox boundingBox = BoundingBox.fromGeoPoints(points);
+                mapView.zoomToBoundingBox(boundingBox, true, 50);
+                mapView.invalidate();
+
+                Toast.makeText(MainActivity.this,
+                        "Using approximate route. For better accuracy, enable data connection.",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                // For short distances, direct line is reasonable
+                routeOverlay.addPoint(start);
+                routeOverlay.addPoint(end);
+                mapView.getOverlays().add(routeOverlay);
+                mapView.invalidate();
+            }
+        }
+        private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+            final int R = 6371000; // Earth's radius in meters
+
+            double latDistance = Math.toRadians(lat2 - lat1);
+            double lonDistance = Math.toRadians(lon2 - lon1);
+
+            double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                    + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                    * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+
+            double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c; // distance in meters
         }
     }
 }
